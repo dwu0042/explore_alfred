@@ -1,9 +1,7 @@
 import overlap_residence as ovr
 import polars as pl
 
-import configparser
-env = configparser.ConfigParser()
-env.read('env.ini')
+from env_reader import env
 
 def read(path=env['outputs']['clean_data']):
     df = pl.read_csv(path, try_parse_dates=True)

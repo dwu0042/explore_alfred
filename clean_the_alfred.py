@@ -61,9 +61,7 @@ def yield_clean_df(original_df:pl.DataFrame) -> pl.DataFrame:
                                      retain_auxiliary_data=False)
 
 if __name__ == "__main__":
-    import configparser
-    env = configparser.ConfigParser()
-    env.read('env.ini')
+    from env_reader import env
 
     df = load_and_preclean(env['data']['raw'])
     df_clean = yield_clean_df(df)
