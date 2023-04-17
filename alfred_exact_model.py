@@ -51,15 +51,22 @@ class Model(abm.Model):
             self.state.add_agent(agent)
             # self.state.move(agent.id, self._NULL_LOC.id)
 
-    def generate_initial_events(self):
-        for event in self.transition_events.iter_rows(named=True):
-            sim_time = (event['Date'] - self._ref_date).total_seconds() / 60 / 60 /24 # base units days
-            self.state.add_event(
-                t=sim_time, 
-                event_type=AlfredEventType.Move, 
-                agent=event['sID'],
-                aux=str(event['fID']),
-            )
+    def generate_initial_events(self, permute=None):
+        sim_t = (pl.col('Date') - self._ref_date).dt.seconds() / 60 / 60 / 24 # base unit days
+        events = self.transition_events.with_columns(sim_t.alias('simt'))
+        for chunk in events.partition_by('sID'):
+            if permute:
+                # roll a permutation value
+                # in range -p to p
+                # where it is beta-distribed from [-p, p]
+                dt = permute * (2*random.betavariate(2, 2) - 1)  
+            for event in chunk.iter_rows(named=True):
+                self.state.add_event(
+                    t=max(0, event['simt']+dt), # just clipping at zero here
+                    event_type=AlfredEventType.Move, 
+                    agent=event['sID'],
+                    aux=str(event['fID']),
+                )
 
     def update_agent_events(self, agent: Hashable, occurred_event_type: AlfredEventType):
         # we deal with this in the event handling any way
@@ -187,6 +194,8 @@ class Model(abm.Model):
                 'maxtime': opts.maxtime,
                 'seed': self._seed,
                 'exectime': datetime.datetime.now(),
+                'permute_value': opts.permute_value if not opts.model else None,
+                'base_model': opts.model,
             }]))
 
 if __name__ == "__main__":
@@ -204,8 +213,11 @@ if __name__ == "__main__":
     parser.add_argument('--infection', '-i', action='store', type=float,
                         default=None)
     parser.add_argument('--model', '-m', action='store', 
-                        default=None)
+                        default=None, 
+                        help="Loads in existing base model. Overrides and ignores 'events', 'permute-value', 'dump-model', 'dump-file'")
     parser.add_argument('--seed', '-s', action='store', type=int,
+                        default=None)
+    parser.add_argument('--permute-value', '-z', action='store', type=float,
                         default=None)
     parser.add_argument('--maxtime', '-t', action='store', type=float,
                         default=None)
@@ -247,7 +259,7 @@ if __name__ == "__main__":
         sim.initialise_state()
         print("States intialised.")
         print("Generating movement events...")
-        sim.generate_initial_events()
+        sim.generate_initial_events(permute=opts.permute_value)
         print("Movement events generated.")
 
         if opts.dump_model:
