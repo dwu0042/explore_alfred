@@ -1,4 +1,5 @@
 
+import pathlib
 import dataclasses
 import polars as pl
 from typing import Iterable, Hashable
@@ -175,7 +176,7 @@ class Model(abm.Model):
             for cause, changed, loc in records:
                 self.history.append([self.state.t, self.history[-1][1] + 1, changed, cause, loc])
 
-    def write_result(self, path: str):
+    def write_result(self, path: pathlib.Path):
         df = pl.from_records(self.history, schema={
             'time': pl.Float64, 
             'infected': pl.Int64,
@@ -184,7 +185,9 @@ class Model(abm.Model):
             'location': pl.Utf8,
             }
         )
-        df.write_csv(path)
+        outpath = path.with_stem(f"{path.stem}_{int(time.time())}")
+        df.write_csv(outpath)
+        return outpath
 
     def write_metadata(self, path: str, opts: str):
         with open(path, 'a') as fp:
@@ -195,13 +198,12 @@ class Model(abm.Model):
                 'seed': self._seed,
                 'exectime': datetime.datetime.now(),
                 'permute_value': opts.permute_value if not opts.model else None,
-                'base_model': opts.model,
+                'base_model': str(opts.model) if opts.model else str(opts.dump_file) if opts.dump_model else None,
             }]))
 
 if __name__ == "__main__":
     import pickle, time
     import argparse
-    import pathlib
     import yaml
     import pprint
 
@@ -212,7 +214,7 @@ if __name__ == "__main__":
                         default=None)
     parser.add_argument('--infection', '-i', action='store', type=float,
                         default=None)
-    parser.add_argument('--model', '-m', action='store', 
+    parser.add_argument('--model', '-m', action='store', type=pathlib.Path,
                         default=None, 
                         help="Loads in existing base model. Overrides and ignores 'events', 'permute-value', 'dump-model', 'dump-file'")
     parser.add_argument('--seed', '-s', action='store', type=int,
@@ -281,7 +283,8 @@ if __name__ == "__main__":
     sim.simulate(until=opts.maxtime, print_freq=opts.print_freq)   # 2196 is 6 years ish
     print("Simulation finished.")
     print("Recording results...")
-    sim.write_result(opts.output)
+    actual_outpath = sim.write_result(opts.output)
+    opts.output = actual_outpath
     print(f"Recorded to {opts.output}.")
     print(f"Writing metadata to {opts.metadata}...")
     sim.write_metadata(opts.metadata, opts=opts)
