@@ -1,0 +1,115 @@
+---
+title: Locations of Inferrable CPE Infections at the Alfred
+author: David Wu
+version: 0.1
+date: 2023-04-19
+---
+
+# Introduction
+
+Here, we describe a preliminary analysis of inferring locations of CPE transmission at the Alfred.
+We perform data analysis on two datasets: the first is a table of patient movements at the Alfred in two time periods DD/MM 2013 - DD/MM/2014 and DD/MM/2017 - DD/MM/2019; the second is a table of positive swabs of different hospital-acquired infection organisms.
+In this study, we are primarily interested in carbapenemase-producing Enterobacterales (CPE), which are recorded as E. cloacae in the swab data.
+The analysis can be roughly categorised into three stages: data cleaning of the movement data, computation of patient overlaps in the movement data, and the filtering of the patient overlaps to detect overlaps of CPE-positive individuals.
+
+# Data Description
+
+> Main point here is that the movement data is in two periods.
+
+# Data Cleaning
+
+We perform data cleaning on the movement data using an adapted version of the HospitalNetwork R package as implemented in Python (in the transfer_linkage.cleaner module).
+
+We first standardise the columns, converting known columns to predefined types, and filling in NULL values. NULL values in the movement data exist only for discharge timings, and we apply two simple rules to fill NULLS:
+
+1. If a patient reappears in the records, in the same time period, the NULL discharge date is recorded as their next admission date.
+2. If a patient does not reappear in their time period, we assume that this is a case of censoring, and for the purposes of this exercise, assume that they are discharged at the end of the time period.
+
+Following this, we remove intra-patient overlaps. These are temporal overlaps of records of the same patient, which occur due to administrative errors.
+We follow a different approach to the R package for this step.
+The algorithm is as follows, and is applied to each patient separately:
+
+1. Split records into admission and discharge events.
+2. Order the events by time -> Events_List
+3. Initialise a stack of locations (empty), and set the current state, current location to NULL
+4. Initialise the (output) pathway as an empty list
+5. While Events_List is not empty:
+    1. Pop next item in the Events_List
+    2. If the state is NULL and the stack is empty
+       1. Assert here that the event is a start event (should always pass)
+       2. Set the current location to the event location
+       3. Set the current state to start
+       4. Add the current time and location to the pathway [ADMISSION]
+    3. Otherwise, if the event is a start event (regardless of event location)
+       1. Push the current location to the stack
+       2. Add the current time and location to the pathway [DISCHARGE]
+       3. Set the current location to the event location
+       4. Add the current time and location to the pathway [ADMISSION]
+    4. Otherwise, if the event is an end event, and the event location is the same as the current location
+       1. Add the current time and location to the pathway [DISCHARGE]
+       2. Set the current location to NULL
+       3. Set the current state to NULL
+       4. If the stack is non-empty
+          1. Set the current state to be a start state
+          2. Pop the last location off the stack, and set it as the current location
+          3. Add the current time and location to the pathway [ADMISSION]
+    5. Otherwise, if the event is an end event and the event location and current location are identical
+       1. Pop the last location off the stack and discard it
+6. Transform the pathway back to a list of records by looping over the pathway entries pairwise.
+
+# Computing patient overlaps
+
+Patient overlaps can be extracted from the cleaned movement data.
+Here we simply iterate over all records, and report back all other records that have overlapping time intervals and are at the same location.
+This _could_ be done efficiently in runtime by maintaining a set of "active" records from the dataset and comparing over those, but the implementation of this exploded in memory, for some unknown reason.
+Instead, we simply do a brute force iteration.
+
+# Data cleaning: CPE data
+
+We filter the CPE data so that all records match the following criteria:
+
+1. The organism that is detected is E. cloacae
+2. The positive date is within the time period of the movement data (loosely, we just filter so that the date is before the end of the second time period)
+
+We only consider the Date positive as a simplification.
+
+# Computing viable infection overlaps
+
+This is also a filtering exercise, once we haev the overlaps. For each CPE record, we filter the overlaps such that the overlap involves the individual in the record, and the overlap starts before the date positive. 
+We then additionally filter so that the other individual involved in the overlap must also be present in the CPE dataset.
+
+# Prelim results
+
+If we do a simple count over all potential viable overlaps, weighted by their overlap duration, we get the following:
+
+|ward  |weight              |
+|------|--------------------|
+|A-ICU |5913.072222222223   |
+|A-7EA |1512.2284722222223  |
+|A-6EA |1244.6194444444443  |
+|A-6WS |1188.5465277777778  |
+|A-3WS |378.0805555555555   |
+|A-3EA |361.39375           |
+|A-5EA |354.0006944444445   |
+|A-4EA |343.38680555555555  |
+|C-AC1 |187.43055555555554  |
+|C-RA  |148.11111111111111  |
+|A-7WS |86.41805555555557   |
+|A-2EA |79.37430555555555   |
+|C-AC2 |75.63402777777777   |
+|C-RC  |62.513888888888886  |
+|C-ACG |61.6125             |
+|A-4WA |56.86666666666667   |
+|A-4WB |55.35763888888889   |
+|C-BAH |15.104166666666668  |
+|A-2F  |6.4624999999999995  |
+|A-HOC |5.614583333333333   |
+|A-ACSS|4.843055555555557   |
+|A-ESSU|1.2638888888888888  |
+|A-APU |0.48611111111111116 |
+|A-FDC |0.2569444444444445  |
+|A-ACOR|0.2111111111111111  |
+|C-RB  |0.020833333333333332|
+
+![](ward_viable_overlaps.png)
+
