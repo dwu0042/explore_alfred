@@ -47,7 +47,7 @@ def dump_csv_fragment(df: pl.DataFrame, path: str, header=False):
     with open(path, 'ab') as fp:
         df.write_csv(fp, has_header=header)
 
-def compute_and_write_overlaps(df:pl.DataFrame, path:str=env['outputs']['overlaps'], print_freq=None):
+def compute_and_write_overlaps(df:pl.DataFrame, path:str=env['outputs']['overlaps'], print_freq=None, allow_duplicates=True):
     L = df.shape[0]
     for i, row in enumerate(df.iter_rows(named=True)):
         overlap = compute_single_overlap(row, df)
@@ -55,6 +55,23 @@ def compute_and_write_overlaps(df:pl.DataFrame, path:str=env['outputs']['overlap
         if print_freq and i%print_freq == 0:
             print("Processed row", i, "of", L-1)
 
+    if not allow_duplicates:
+        clean_duplicates(path)
+
+def clean_duplicates(path):
+    overlaps_df = pl.scan_csv(path, try_parse_dates=True)
+    overlaps_df = (
+        overlaps_df
+        .with_columns(patients=pl.concat_list(pl.col('patient1', 'patient2')).arr.sort())
+        .with_columns(
+            patient1 = pl.col('patients').arr.get(0),
+            patient2 = pl.col('patients').arr.get(1),
+        )
+        .select(pl.exclude('patients'))
+        .unique()
+    )
+    overlaps_df.collect().write_csv(path)
+
 if __name__ == "__main__":
     df = load()
-    compute_and_write_overlaps(df, print_freq=int((df.shape[0])/10))
+    compute_and_write_overlaps(df, print_freq=int((df.shape[0])/10), allow_duplicates=False)
