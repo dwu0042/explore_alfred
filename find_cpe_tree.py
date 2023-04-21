@@ -19,6 +19,7 @@ def clean_cpe_data(df: pl.DataFrame, target="E. cloacae"):
         pl.col('mrn').alias('sID'), 
         pl.col('Dates positive').alias('Date'),
         pl.col('Date reported').alias('Reported'),
+        pl.col('st').alias('strain')
     ])
 
 def load_overlaps(path: str=env['outputs']['overlaps']):
@@ -36,43 +37,50 @@ def backsearch(individual, timing, overlaps):
     return viable_overlaps
 
 def viable_overlaps(cpe_df: pl.DataFrame, overlaps: pl.DataFrame):
-    return {
-        entry['sID']: backsearch(entry['sID'], entry['Date'], overlaps)
-        for entry in cpe_df.iter_rows(named=True)
-    }
-
-def export_viable_overlaps(overlaps: Iterable[pl.DataFrame], path: str=env['outputs']['backsearches']):
-    exportable = pl.concat(
-        (df
-            .with_columns(
-                sID=k, 
-                cause=(pl.col('patient1') + pl.col('patient2') - k)
-            ).select(
-                'sID',
-                'cause',
-                'fID',
-                'overlap_start',
-                'overlap_end',
-                'overlap_duration',
-            )
-        )
-        for k, df in overlaps.items()
+    # TODO: keys need to be unique, sID is not unique
+    # return {
+    #     entry['sID']: backsearch(entry['sID'], entry['Date'], overlaps)
+    #     for entry in cpe_df.iter_rows(named=True)
+    # }
+    return (pl.concat(
+        backsearch(entry['sID'], entry['Date'], overlaps)
+        .with_columns(**{k: pl.lit(v, dtype=d) for (k,v),d in zip(entry.items(), cpe_df.dtypes)})
+        for entry in cpe_df.iter_rows(named="True")
     )
-    exportable.write_csv(path)
+    .with_columns(cause=pl.col('patient1')+pl.col('patient2')-pl.col('sID'))
+    .select('sID', 'cause', 'fID', 'overlap_start', 'overlap_end', 'overlap_duration', 
+            pl.col('Date').alias('date_positive'), pl.col('Reported').alias('date_reported'),
+            'strain')
+    )
 
-    missings = [k for k,df in overlaps.items() if df.shape[0] == 0]
-    missing_df = pl.from_dict(dict(missing=pl.Series(missings)))
-    missing_df.write_csv(f"{path}.missing")
+def export_viable_overlaps(overlaps: Iterable[pl.DataFrame], path: str=env['outputs']['backsearches'], missing_from: pl.Series|list=None):
+    overlaps.write_csv(path)
+
+    if missing_from is not None:
+        missings = set(missing_from).difference(set(overlaps.select('sID').unique().to_series()))
+        missing_df = pl.from_dict(dict(missing=pl.Series(list(missings))))
+        missing_df.write_csv(f"{path}.missing")
 
 def strict_viable_overlaps(cpe_df: pl.DataFrame, viable_overlaps: pl.DataFrame):
-    return {
-        case: df.filter(
-            pl.any(pl.col('patient1', 'patient2').is_in(
-                set(cpe_df.select('sID').to_series().to_list()).difference({case})
-            ))
+    # make assumption that strains do not mutate over time, 
+    # i.e. infections only lead to same strain
+    # we can use this to detect structural holes
+    # esp if we compare with the slightly less strict version
+
+    generic_st = ['unknown', 'Novel ST', 'ST Novel']
+
+    return (
+        viable_overlaps.join(cpe_df, left_on='cause', right_on='sID', how='left', suffix='_cause')
+        .filter(
+            (pl.col('cause').is_in(cpe_df.select('sID').unique().to_series()))
+            & (
+                (pl.col('strain') == pl.col('strain_cause'))
+                | (pl.col('strain').is_in(generic_st))
+            )
         )
-        for case, df in viable_overlaps.items()
-    }
+        .select('sID', 'cause', 'fID', 'overlap_start', 'overlap_end', 'overlap_duration', 
+                'date_positive', 'date_reported', 'strain')
+    )
 
 if __name__ == "__main__":
     # import pickle
@@ -81,9 +89,10 @@ if __name__ == "__main__":
     cpe = clean_cpe_data(cpe)
     overlaps = load_overlaps()
     viables = viable_overlaps(cpe, overlaps)
-    export_viable_overlaps(viables, env['outputs']['backsearches'])
+    export_viable_overlaps(viables, missing_from=cpe.select('sID').to_series())
     strict_viables = strict_viable_overlaps(cpe, viables)
-    export_viable_overlaps(strict_viables, f"{env['outputs']['backsearches']}.strict")
+    export_viable_overlaps(strict_viables, path=f"{env['outputs']['backsearches']}.strict", 
+                           missing_from=cpe.select('sID').to_series())
 
     # with open("viable_overlaps.pkl", 'wb') as fp:
         # pickle.dump(viables, fp)
