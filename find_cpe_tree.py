@@ -61,25 +61,51 @@ def export_viable_overlaps(overlaps: Iterable[pl.DataFrame], path: str=env['outp
         missing_df = pl.from_dict(dict(missing=pl.Series(list(missings))))
         missing_df.write_csv(f"{path}.missing")
 
-def strict_viable_overlaps(cpe_df: pl.DataFrame, viable_overlaps: pl.DataFrame):
+def strict_viable_overlaps(cpe_df: pl.DataFrame, viable_overlaps: pl.DataFrame, modes: None):
+    
+    if modes is None:
+        modes = ['basic']
+
+    available_modes = {
+        'basic': _strict_known_viable_overlaps,
+        'strain': _strict_strain_viable_overlaps,
+    }
+
+    try:
+        filters = [available_modes[mode] for mode in modes]
+    except KeyError as ke:
+        raise ValueError(f"Unknown mode: {ke.args[0]}. Available modes: {list(available_modes.keys())}")
+
+    for filter in filters:
+        viable_overlaps = filter(cpe_df, viable_overlaps)
+
+    return viable_overlaps
+
+def _strict_known_viable_overlaps(cpe_df: pl.DataFrame, viable_overlaps: pl.DataFrame):
+    """Filter viable overlaps so that only overlaps with known infected individuals are kept"""
+    return (
+        viable_overlaps
+        .filter(pl.col('cause').is_in(cpe_df.select('sID').unique().to_series()))
+    )
+
+def _strict_strain_viable_overlaps(cpe_df: pl.DataFrame, viable_overlaps: pl.DataFrame):
+    """Filter viable overlaps so that only overlaps between individuals of the same strain are kept"""
     # make assumption that strains do not mutate over time, 
     # i.e. infections only lead to same strain
     # we can use this to detect structural holes
     # esp if we compare with the slightly less strict version
 
     generic_st = ['unknown', 'Novel ST', 'ST Novel']
+    keep_cols = viable_overlaps.columns
 
     return (
         viable_overlaps.join(cpe_df, left_on='cause', right_on='sID', how='left', suffix='_cause')
         .filter(
-            (pl.col('cause').is_in(cpe_df.select('sID').unique().to_series()))
-            & (
-                (pl.col('strain') == pl.col('strain_cause'))
-                | (pl.col('strain').is_in(generic_st))
-            )
+            (pl.col('strain') == pl.col('strain_cause'))
+            | (pl.col('strain').is_in(generic_st))
+            | (pl.col('strain').is_null())
         )
-        .select('sID', 'cause', 'fID', 'overlap_start', 'overlap_end', 'overlap_duration', 
-                'date_positive', 'date_reported', 'strain')
+        .select(keep_cols)
     )
 
 if __name__ == "__main__":
@@ -89,10 +115,11 @@ if __name__ == "__main__":
     cpe = clean_cpe_data(cpe)
     overlaps = load_overlaps()
     viables = viable_overlaps(cpe, overlaps)
-    export_viable_overlaps(viables, missing_from=cpe.select('sID').to_series())
-    strict_viables = strict_viable_overlaps(cpe, viables)
+    cpe_sIDs = cpe.select('sID').to_series()
+    export_viable_overlaps(viables, missing_from=cpe_sIDs)
+    strict_viables = strict_viable_overlaps(cpe, viables, modes=['basic', 'strain'])
     export_viable_overlaps(strict_viables, path=f"{env['outputs']['backsearches']}.strict", 
-                           missing_from=cpe.select('sID').to_series())
+                           missing_from=cpe_sIDs)
 
     # with open("viable_overlaps.pkl", 'wb') as fp:
         # pickle.dump(viables, fp)
