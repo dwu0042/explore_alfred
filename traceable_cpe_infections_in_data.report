@@ -76,40 +76,99 @@ We only consider the Date positive as a simplification.
 # Computing viable infection overlaps
 
 This is also a filtering exercise, once we haev the overlaps. For each CPE record, we filter the overlaps such that the overlap involves the individual in the record, and the overlap starts before the date positive. 
-We then additionally filter so that the other individual involved in the overlap must also be present in the CPE dataset.
+<!-- We then additionally filter so that the other individual involved in the overlap must also be present in the CPE dataset.
+ -->
+
+We then apply to "stricter" filters on the overlaps. Firstly, we filter overlaps so that both indivdiuals must be a part of the CPE dataset. This means we restrict the list of overlaps to those that are consistent with the infection observed in the CPE data. This is the "basic" filter.
+We also filter so that both indivdiuals must have the same strain of CPE. We implement a slightly relaxed version of this, where we keep individuals that have novel or unknown strains of CPE. This is the "strain" filter.
+
 
 # Prelim results
 
-If we do a simple count over all potential viable overlaps, weighted by their overlap duration, we get the following:
+<!-- If we do a simple count over all potential viable overlaps, weighted by their overlap duration, we get the following:
 
-|ward  |weight              |
-|------|--------------------|
-|A-ICU |5913.072222222223   |
-|A-7EA |1512.2284722222223  |
-|A-6EA |1244.6194444444443  |
-|A-6WS |1188.5465277777778  |
-|A-3WS |378.0805555555555   |
-|A-3EA |361.39375           |
-|A-5EA |354.0006944444445   |
-|A-4EA |343.38680555555555  |
-|C-AC1 |187.43055555555554  |
-|C-RA  |148.11111111111111  |
-|A-7WS |86.41805555555557   |
-|A-2EA |79.37430555555555   |
-|C-AC2 |75.63402777777777   |
-|C-RC  |62.513888888888886  |
-|C-ACG |61.6125             |
-|A-4WA |56.86666666666667   |
-|A-4WB |55.35763888888889   |
-|C-BAH |15.104166666666668  |
-|A-2F  |6.4624999999999995  |
-|A-HOC |5.614583333333333   |
-|A-ACSS|4.843055555555557   |
-|A-ESSU|1.2638888888888888  |
-|A-APU |0.48611111111111116 |
-|A-FDC |0.2569444444444445  |
-|A-ACOR|0.2111111111111111  |
-|C-RB  |0.020833333333333332|
+| ward | weight |
+|------|--------|
+|A-ICU |4366.972|
+|A-7EA |1060.300|
+|A-6EA | 795.852|
+|A-6WS | 700.876|
+|A-3WS | 267.385|
+|A-5EA | 253.903|
+|A-3EA | 230.025|
+|A-4EA | 191.866|
+|C-AC1 | 166.921|
+|C-RA  |  78.312|
+|A-7WS |  70.595|
+|C-RC  |  62.514|
+|A-2EA |  51.747|
+|A-4WA |  51.469|
+|C-AC2 |  39.837|
+|C-ACG |  36.717|
+|A-4WB |  32.872|
+|C-BAH |   9.500|
+|A-2F  |   6.414|
+|A-HOC |   3.998|
+|A-ACSS|   3.901|
+|A-ESSU|   0.632|
+|A-APU |   0.381|
+|A-FDC |   0.257|
+|A-ACOR|   0.106|
+|C-RB  |   0.010|
 
-![](ward_viable_overlaps.png)
 
+Iterating through each individual, and assigning their _most probable ward_ as the ward that had the longest total overlap, we extract the following table of wards:
+
+|Ward|#Individuals it was most probable for|
+|---|---|
+|A-ICU|43|
+|A-6WS|11|
+|A-7EA|10|
+|A-6EA|7|
+|A-3WS|5|
+|A-4EA|5|
+|A-5EA|4|
+|A-7WS|4|
+|C-RC|2|
+|A-3EA|2|
+|A-2EA|2|
+|C-AC2|2|
+|C-RA|1|
+|C-AC1|1| -->
+
+After searching the overlaps, we are left with two CPE-positive indivdiuals that are "missing" from the patient movement overlap data.
+
+Performing the "basic" filter, we find that there are 7 individuals that are not involved in any patient overlaps with other indivdiuals that are CPE positive at any point in their patient journey. Looking at the remaining overlaps, we see that these individuals also do not appear in overlaps with any other CPE positive individuals, which could happen if they might be sources of infection. We can tentatively state that these indivdiuals are localised cases of CPE.
+Interestingly, some of these individuals seem to be implicated in the contact tracing done in the CPE dataset, and are part of "sub-clusters":
+
+| MRN     | cluster             | |
+|---------|---------------------|-|
+| 288869  | ST93 sub-cluster 1  |← this "cluster" lasted 2.5 years |
+| 6083802 | ST93 sub-cluster 1  |
+| 796338  | ST93 sub-cluster 1  |
+| 6252832 | ST93 sub-cluster 1  |
+| 7073798 | ST93 sub-cluster 1  |
+| 7174940 | ST190 sub-cluster 1 |
+
+Performing the "strain" filter on top of the remainign overlaps, we find the following individuals that do not have overlaps with others with the same strain.
+
+
+| MRN     | strain |
+|---------|--------|
+| 6240020 | ST93   |
+| 6641146 | ST93   |
+| 4529827 | ST114  |
+| 6269880 | ST477  |
+| 6269880 | ST477  |
+| 6610483 | ST93   |
+| 7109294 | ST93   |
+| 7160044 | ST114  |
+| 925224  | ST114  |
+| 1233843 | ST190  |
+| 6022847 | ST93   |
+
+This suggests that simply searching overlaps of individuals is possibly too strict, as CPE is not "directly" transmitted to other individuals (it's not a respiratory disease).
+This also informs us that we should probably take a bipartite-network approach to modelling the spread of CPE, allowing locations to become "infected" in time.
+This would also allow for easier implementation of the transmission risk area protocols put into place, which impose location-based (ward-based) restrictions.
+
+So what can we learn from the resulting network of overlaps?
