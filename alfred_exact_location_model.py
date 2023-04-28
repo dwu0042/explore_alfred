@@ -47,7 +47,7 @@ class Model(abm.Model):
             self.transition_events = pl.read_csv(event_file_path, try_parse_dates=True)
         else:
             self.transition_events = pl.DataFrame(schema={
-                'sID': pl.Float64,
+                'sID': pl.Int64,
                 'fID': pl.Utf8,
                 'Date': pl.Datetime,
             })
@@ -271,7 +271,7 @@ class Model(abm.Model):
         df.write_csv(outpath)
         return outpath
 
-    def write_metadata(self, path: str, opts: str):
+    def write_metadata(self, path: str, opts):
         with open(path, 'a') as fp:
             fp.write(yaml.safe_dump([{
                 'result': str(opts.output),
