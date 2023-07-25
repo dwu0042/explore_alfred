@@ -19,7 +19,7 @@ def read_df(path:str) -> pl.DataFrame:
 
 def preprocess(df:pl.DataFrame) -> pl.DataFrame:
     df = df.with_columns(
-        WardCode=pl.col('Ward').str.split(' - ').arr.get(0),
+        WardCode=pl.col('Ward').str.split(' - ').list.get(0),
     )
     # small preprocessing for next step: we need sortable dates
     df = tl.cleaner.standardise_column_names(df, subject_id='MRN', 
@@ -37,8 +37,8 @@ def preprocess(df:pl.DataFrame) -> pl.DataFrame:
 
     fill_val = data_collection_end[df.select('time_period')[0,].item()]
     # search for null discharge dates
-    print(df.filter(pl.any(pl.col('Ddate').is_null())).shape[0], 'null values exist')
-    (df.filter(pl.any(pl.col('Ddate').is_null()))
+    print(df.filter(pl.any_horizontal(pl.col('Ddate').is_null())).shape[0], 'null values exist')
+    (df.filter(pl.any_horizontal(pl.col('Ddate').is_null()))
         .select('sID', 'fID', 'Adate', 'Ddate')
         .with_columns(Duration=(fill_val-pl.col('Adate')).dt.seconds()/60/60/24)
         .write_csv(f"nulls_{df.select('time_period')[0,].item()}.csv")
